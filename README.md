@@ -38,7 +38,7 @@ Alternatively use the second transistor in the MUN5233 to drive the same ESP32 R
 ## Hardware Requirements
 
 -   **ESP32-C3**
--   **MUN5233 NPN Transistor** ([datasheet](https://www.farnell.com/datasheets/1672232.pdf))
+-   **MUN5233 NPN Transistor** I am using the MUN5233DW with two transistors ([datasheet](https://www.farnell.com/datasheets/1672232.pdf))
 -  **5.1kΩ** pulldown on CC
 -   **USB PD Power Supply**
 -   **CC Line Access** for monitoring/sniffing
