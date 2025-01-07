@@ -163,13 +163,13 @@ typedef enum
 } pd_mode_t;
 
 /* Structured VDM Header Bit Masks */
-#define SVID_MASK        0xFFFF0000
-#define VDM_TYPE_MASK    0x00008000
-#define VDM_VERSION_MASK 0x00006000
-#define VDM_MINOR_MASK   0x00001800
-#define OBJ_POS_MASK     0x00000700
-#define CMD_TYPE_MASK    0x000000C0
-#define RESERVED_MASK    0x00000020
+#define SVID_MASK        0x0000FFFF
+#define VDM_TYPE_MASK    0x00000001
+#define VDM_VERSION_MASK 0x00000003
+#define VDM_MINOR_MASK   0x00000003
+#define OBJ_POS_MASK     0x00000007
+#define CMD_TYPE_MASK    0x00000003
+#define RESERVED_MASK    0x00000001
 #define COMMAND_MASK     0x0000001F
 
 /* Bit Shift Values */
@@ -181,3 +181,84 @@ typedef enum
 #define CMD_TYPE_SHIFT    6
 #define COMMAND_SHIFT     0
 
+/* ID Header VDO Bit Masks */
+#define USB_HOST_MASK         0x00000001
+#define USB_DEVICE_MASK       0x00000001
+#define SOP_PRODUCT_TYPE_MASK 0x00000003
+#define MODAL_OPERATION_MASK  0x00000001
+#define USB_VENDOR_ID_MASK    0x0000FFFF
+
+/* ID Header VDO Bit Shifts */
+#define USB_HOST_SHIFT         31
+#define USB_DEVICE_SHIFT       30
+#define SOP_PRODUCT_TYPE_SHIFT 27
+#define MODAL_OPERATION_SHIFT  26
+#define USB_VENDOR_ID_SHIFT    0
+
+
+/* Product VDO */
+#define USB_PRODUCT_ID_SHIFT   16
+#define BCD_DEVICE_SHIFT       0
+#define USB_PRODUCT_ID_MASK    0x0000FFFF
+#define BCD_DEVICE_MASK        0x0000FFFF
+
+/* Cable VDO1 */
+#define HW_VERSION_SHIFT            28
+#define FW_VERSION_SHIFT            24
+#define VDO_VERSION_SHIFT           21
+#define PLUG_TYPE_SHIFT             18
+#define EPR_CAPABLE_SHIFT           17
+#define CABLE_LATENCY_SHIFT         13
+#define CABLE_TERMINATION_SHIFT     11
+#define MAX_VBUS_VOLTAGE_SHIFT      9
+#define SBU_SUPPORTED_SHIFT         8
+#define SBU_TYPE_SHIFT              7
+#define VBUS_CURRENT_SHIFT          5
+#define VBUS_THROUGH_SHIFT          4
+#define SOP_CONTROLLER_SHIFT        3
+#define HW_VERSION_MASK             0x0000000F
+#define FW_VERSION_MASK             0x0000000F
+#define VDO_VERSION_MASK            0x00000007
+#define PLUG_TYPE_MASK              0x00000003
+#define EPR_CAPABLE_MASK            0x00000001
+#define CABLE_LATENCY_MASK          0x0000000F
+#define CABLE_TERMINATION_MASK      0x00000003
+#define MAX_VBUS_VOLTAGE_MASK       0x00000003
+#define SBU_SUPPORTED_MASK          0x00000001
+#define SBU_TYPE_MASK               0x00000001
+#define VBUS_CURRENT_MASK           0x00000003
+#define VBUS_THROUGH_MASK           0x00000001
+#define SOP_CONTROLLER_MASK         0x00000001
+
+/* Cable VDO2 Bit Masks */
+#define MAX_OPERATING_TEMP_MASK     0x000000FF
+#define SHUTDOWN_TEMP_MASK          0x000000FF
+#define RESERVED_CABLE3_MASK        0x00000001
+#define U3_CLD_POWER_MASK           0x00000007
+#define U3_TO_U0_TRANSITION_MASK    0x00000001
+#define PHYSICAL_CONNECTION_MASK    0x00000001
+#define ACTIVE_ELEMENT_MASK         0x00000001
+#define USB4_SUPPORTED_MASK         0x00000001
+#define USB2_HUB_HOPS_MASK          0x00000003
+#define USB2_SUPPORTED_MASK         0x00000001
+#define USB3_2_SUPPORTED_MASK       0x00000001
+#define USB_LANES_SUPPORTED_MASK    0x00000001
+#define OPTICALLY_ISOLATED_MASK     0x00000001
+#define USB4_ASYMMETRIC_MASK        0x00000001
+#define USB_GEN_MASK                0x00000001
+
+/* Cable VDO2 Bit Shifts */
+#define MAX_OPERATING_TEMP_SHIFT     24
+#define SHUTDOWN_TEMP_SHIFT          16
+#define U3_CLD_POWER_SHIFT           12
+#define U3_TO_U0_TRANSITION_SHIFT    11
+#define PHYSICAL_CONNECTION_SHIFT    10
+#define ACTIVE_ELEMENT_SHIFT         9
+#define USB4_SUPPORTED_SHIFT         8
+#define USB2_HUB_HOPS_SHIFT          6
+#define USB2_SUPPORTED_SHIFT         5
+#define USB3_2_SUPPORTED_SHIFT       4
+#define USB_LANES_SUPPORTED_SHIFT    3
+#define OPTICALLY_ISOLATED_SHIFT     2
+#define USB4_ASYMMETRIC_SHIFT        1
+#define USB_GEN_SHIFT                0
