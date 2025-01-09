@@ -174,6 +174,7 @@ void pd_protocol_task(void *pvParameters)
                     pd_msg response = {0};
 
                     response.target = rx_data->target;
+                    response.immediate = true;
                     response.header.num_data_objects = 0;
                     response.header.power_role = PD_DATA_ROLE_UFP;
                     response.header.spec_revision = 2;
@@ -320,6 +321,7 @@ void pd_protocol_task(void *pvParameters)
             pd_msg response = {0};
 
             response.target = PD_TARGET_SOP;
+            response.immediate = true;
             response.header.num_data_objects = 1;
             response.header.power_role = PD_DATA_ROLE_UFP;
             response.header.spec_revision = 2;
@@ -698,10 +700,10 @@ void pd_init()
     pd_state_reset();
 
     /* the rx_ack task needs highes priority as it has to respons with a RMT tx within a few hundred usec */
-    xTaskCreate(pd_rx_ack_task, "pd_rx_ack_task", 4096, NULL, configMAX_PRIORITIES - 1, NULL);
+    xTaskCreate(pd_rx_ack_task, "pd_rx_ack_task", 4096, NULL, PD_RX_ACK_TASK_PRIO, NULL);
     /* the user task turned out to also be a bit "time critical". every CAP message needs to be answered immediately */
-    xTaskCreate(pd_protocol_task, "pd_protocol_task", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
-    xTaskCreate(pd_log_task, "pd_log_task", 4096, NULL, tskIDLE_PRIORITY + 1, NULL);
+    xTaskCreate(pd_protocol_task, "pd_protocol_task", 4096, NULL, PD_PROTOCOL_TASK_PRIO, NULL);
+    xTaskCreate(pd_log_task, "pd_log_task", 4096, NULL, PD_LOG_TASK_PRIO, NULL);
 
     ESP_LOGI(TAG, "  * Initialize RX");
     pd_rx_init();

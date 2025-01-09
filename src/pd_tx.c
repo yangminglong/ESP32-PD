@@ -42,6 +42,7 @@ extern QueueHandle_t pd_queue_rx_data_log;
 extern QueueHandle_t pd_queue_empty;
 
 static volatile bool pd_tx_ongoing_flag = false;
+static uint8_t pd_tx_message_id = 0;
 
 bool IRAM_ATTR pd_tx_ongoing()
 {
@@ -123,6 +124,7 @@ static IRAM_ATTR size_t pd_tx_enc_cbr(const void *data, size_t data_size,
         memset(ctx, 0, sizeof(pd_tx_ctx_t));
         ctx->state = PD_TX_PATTERN;
         ctx->level = true;
+        pd_tx_ongoing_flag = true;
     }
 
     /* We need a minimum of 10 symbol spaces per byte */
@@ -255,9 +257,16 @@ bool IRAM_ATTR pd_tx_done_cbr(rmt_channel_handle_t tx_chan, const rmt_tx_done_ev
     return false;
 }
 
-static uint8_t pd_tx_message_id = 0;
+void IRAM_ATTR pd_tx_start(const uint8_t *data, size_t length)
+{
+    rmt_transmit_config_t config = {
+        .loop_count = 0,
+    };
 
-void pd_tx_task(void *pvParameters)
+    ESP_ERROR_CHECK(rmt_transmit(pd_tx_chan, pd_tx_encoder, data, length, &config));
+}
+
+void IRAM_ATTR pd_tx_task(void *pvParameters)
 {
     uint8_t buffer[1 + 2 + 7 * 4 + 4];
     pd_msg *msg;
@@ -298,32 +307,29 @@ void pd_tx_task(void *pvParameters)
         length += 4;
 
         /* now retry three times to send the message and get an ACK for it */
+        bool ack = false;
         uint32_t retries = 3;
-        while (retries)
+        while (retries-- && !ack)
         {
-            uint32_t ack_id = 0;
-
-            /* flush ack queue first */
-            while (xQueueReceive(pd_queue_tx_acks, &ack_id, 0))
+            /* transmit our buffer */
+            if (!msg->immediate)
             {
+                while (pd_rx_ongoing() || pd_tx_ongoing())
+                {
+                    vPortYield();
+                }
             }
 
-            /* transmit our buffer */
-            pd_tx(buffer, length);
+            pd_tx_start(buffer, length);
 
-            bool ack = false;
-
-            /* and wait for the RX path to detect an ack */
-            if (xQueueReceive(pd_queue_tx_acks, &ack_id, 10 / portTICK_PERIOD_MS) == pdTRUE)
+            /* wait for the RX path to detect an ack */
+            uint32_t ack_id = 0;
+            while (xQueueReceive(pd_queue_tx_acks, &ack_id, 10 / portTICK_PERIOD_MS) == pdTRUE)
             {
                 ack = (ack_id == pd_tx_message_id);
             }
 
-            if (!ack)
-            {
-                retries--;
-            }
-
+#ifdef PD_LOG_TX_PACKETS
             /* log the message */
             pd_rx_buf_t *rx_data;
             if (xQueueReceive(pd_queue_empty, &rx_data, portMAX_DELAY))
@@ -343,18 +349,17 @@ void pd_tx_task(void *pvParameters)
                     free(rx_data);
                 }
             }
-
-            /* was if for our message? */
-            if (ack)
-            {
-                pd_tx_message_id = (pd_tx_message_id + 1) & MESSAGE_ID_MASK;
-                break;
-            }
+#endif
         }
 
+        if (ack)
+        {
+            pd_tx_message_id = (pd_tx_message_id + 1) & MESSAGE_ID_MASK;
+        }
+        
         if (msg->cbr)
         {
-            msg->cbr(msg, retries > 0);
+            msg->cbr(msg, ack);
         }
     }
 }
@@ -410,39 +415,13 @@ void pd_tx_init()
         return;
     }
 
-    xTaskCreate(pd_tx_task, "pd_tx_task", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
+    xTaskCreate(pd_tx_task, "pd_tx_task", 4096, NULL, PD_TX_TASK_PRIO, NULL);
     ESP_LOGI(TAG, "    Done");
 }
 
-void IRAM_ATTR pd_tx_start(const uint8_t *data, size_t length)
-{
-    rmt_transmit_config_t config = {
-        .loop_count = 0,
-    };
-
-    pd_tx_ongoing_flag = true;
-    ESP_ERROR_CHECK(rmt_tx_wait_all_done(pd_tx_chan, 100 / portMAX_DELAY));
-    ESP_ERROR_CHECK(rmt_transmit(pd_tx_chan, pd_tx_encoder, data, length, &config));
-}
-
-void pd_tx(const uint8_t *data, size_t length)
-{
-    /* check for CC line being in use */
-    while (pd_rx_ongoing() || pd_tx_ongoing())
-    {
-        vPortYield();
-    }
-
-    pd_tx_start(data, length);
-}
-
 uint16_t IRAM_ATTR pd_tx_header(
-    uint8_t extended,
-    uint8_t num_data_objects,
-    uint8_t message_id,
-    uint8_t power_role,
-    uint8_t spec_revision,
-    uint8_t data_role,
+    uint8_t extended, uint8_t num_data_objects, uint8_t message_id,
+    uint8_t power_role, uint8_t spec_revision, uint8_t data_role,
     uint8_t message_type)
 {
     uint16_t header = 0;

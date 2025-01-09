@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "driver/gpio.h"
 #include "driver/rmt_rx.h"
@@ -61,6 +62,7 @@ static IRAM_ATTR bool pd_rc_bmc_handle_pulse(uint32_t duration)
             return false;
         }
         ctx->state = PD_RX_INIT;
+        ctx->start_time =  esp_timer_get_time();
     }
 
     /* non-pulses are ignored and signal end-of-reception */

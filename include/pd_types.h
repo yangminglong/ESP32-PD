@@ -128,6 +128,8 @@ typedef struct
     buf_type_t type;
     uint8_t length;
     uint8_t payload[/*2 + 7 * 4 + 4 */ 256];
+
+    uint64_t start_time;
 } pd_rx_buf_t;
 
 typedef struct

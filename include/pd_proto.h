@@ -158,6 +158,7 @@ struct pd_msg_s
     pd_rx_target_t target;
     pd_msg_header header;
     uint32_t pdo[7];
+    bool immediate;
     void (*cbr)(pd_msg *msg, bool success);
     void *cbr_private;
 };
