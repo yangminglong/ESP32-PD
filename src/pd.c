@@ -223,7 +223,7 @@ void pd_protocol_task(void *pvParameters)
 
                     if (rx_data->target == PD_TARGET_SOP_P && req_vdm.vdm_header.command_type == PD_VDM_CMD_TYPE_REQ && req_vdm.vdm_header.command == PD_VDM_CMD_DISCOVER_IDENTIY)
                     {
-#ifdef TEST_EMARKER_CABLE
+#ifdef PD_TEST_EMARKER_CABLE
                         /* ToDo: this requires proper pulldown on the other CC as well */
                         pd_msg response = {0};
 
@@ -251,11 +251,14 @@ void pd_protocol_task(void *pvParameters)
 
                         pd_build_vdm(&resp_vdm, response.pdo);
 
+#if 0
+                        /* hardcode to fake an authentic cable */
                         response.pdo[0] = 0xFF008041;
                         response.pdo[1] = 0x18000000;
                         response.pdo[2] = 0x00000000;
                         response.pdo[3] = 0x00000000;
                         response.pdo[4] = 0x00082052;
+#endif
 
                         response.header.num_data_objects = 5;
 

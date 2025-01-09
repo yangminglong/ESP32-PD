@@ -38,7 +38,7 @@ static volatile bool pd_rx_ongoing_flag = false;
 
 static bool pd_acknowlegde[6] = {
     [PD_TARGET_SOP] = true,
-#ifdef TEST_EMARKER_CABLE
+#ifdef PD_TEST_EMARKER_CABLE
     [PD_TARGET_SOP_P] = true,
     [PD_TARGET_SOP_PP] = true,
 #endif
