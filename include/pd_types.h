@@ -5,6 +5,22 @@
 #define BUILD_LE_UINT16(arr, idx) ((arr[(idx)]) | ((arr[(idx) + 1]) << 8))
 #define BUILD_LE_UINT32(arr, idx) ((arr[(idx)]) | ((arr[(idx) + 1]) << 8) | ((arr[(idx) + 2]) << 16) | ((arr[(idx) + 3]) << 24))
 
+#define SPLIT_LE_UINT16(val, arr, idx)        \
+    do                                        \
+    {                                         \
+        arr[(idx)] = (val) & 0xFF;            \
+        arr[(idx) + 1] = ((val) >> 8) & 0xFF; \
+    } while (0)
+
+#define SPLIT_LE_UINT32(val, arr, idx)         \
+    do                                         \
+    {                                          \
+        arr[(idx)] = (val) & 0xFF;             \
+        arr[(idx) + 1] = ((val) >> 8) & 0xFF;  \
+        arr[(idx) + 2] = ((val) >> 16) & 0xFF; \
+        arr[(idx) + 3] = ((val) >> 24) & 0xFF; \
+    } while (0)
+
 /* Enum for special 4b5b symbols */
 typedef enum
 {
@@ -35,17 +51,22 @@ typedef enum
 
 typedef enum
 {
-    PD_DATA_ROLE_UFP = 0,
-    PD_DATA_ROLE_DFP,
-} pd_data_role_t;
-
-typedef enum
-{
     PD_BUF_TYPE_INVALID = 0,
     PD_BUF_TYPE_TIMINGS,
     PD_BUF_TYPE_SYMBOLS,
     PD_BUF_TYPE_DATA,
 } buf_type_t;
+
+typedef enum
+{
+    PD_TARGET_SOP,
+    PD_TARGET_SOP_P,
+    PD_TARGET_SOP_PP,
+    PD_TARGET_SOP_PD,
+    PD_TARGET_SOP_PPD,
+    PD_TARGET_HARD_RESET,
+    PD_TARGET_CABLE_RESET,
+} pd_rx_target_t;
 
 #define TARGET_SOP (SYNC_1 | (SYNC_1 << 8) | (SYNC_1 << 16) | (SYNC_2 << 24))
 #define TARGET_SOP_P (SYNC_1 | (SYNC_1 << 8) | (SYNC_3 << 16) | (SYNC_3 << 24))
@@ -73,6 +94,20 @@ typedef enum
     PD_TX_DONE
 } pd_tx_state_t;
 
+typedef enum
+{
+    PD_PACKET_RECEIVED,
+    PD_PACKET_RECEIVED_ACKNOWLEDGED,
+    PD_PACKET_SENT,
+    PD_PACKET_SENT_ACKNOWLEDGED
+} pd_packet_dir_t;
+
+typedef struct 
+{
+    pd_rx_target_t target;
+    uint8_t message_id;
+} pd_rx_ack_t;
+
 typedef struct
 {
     /* - PD working variables - */
@@ -88,7 +123,8 @@ typedef struct
     uint8_t symbols[/*2 * (2 + 7 * 4 + 4) + 1 */ 256];
 
     /* - parsed data for next layer - */
-    uint32_t target;
+    pd_packet_dir_t dir;
+    pd_rx_target_t target;
     buf_type_t type;
     uint8_t length;
     uint8_t payload[/*2 + 7 * 4 + 4 */ 256];
@@ -161,104 +197,3 @@ typedef enum
     PD_MODE_IDLE,
     PD_MODE_SINK
 } pd_mode_t;
-
-/* Structured VDM Header Bit Masks */
-#define SVID_MASK        0x0000FFFF
-#define VDM_TYPE_MASK    0x00000001
-#define VDM_VERSION_MASK 0x00000003
-#define VDM_MINOR_MASK   0x00000003
-#define OBJ_POS_MASK     0x00000007
-#define CMD_TYPE_MASK    0x00000003
-#define RESERVED_MASK    0x00000001
-#define COMMAND_MASK     0x0000001F
-
-/* Bit Shift Values */
-#define SVID_SHIFT        16
-#define VDM_TYPE_SHIFT    15
-#define VDM_VERSION_SHIFT 13
-#define VDM_MINOR_SHIFT   11
-#define OBJ_POS_SHIFT     8
-#define CMD_TYPE_SHIFT    6
-#define COMMAND_SHIFT     0
-
-/* ID Header VDO Bit Masks */
-#define USB_HOST_MASK         0x00000001
-#define USB_DEVICE_MASK       0x00000001
-#define SOP_PRODUCT_TYPE_MASK 0x00000003
-#define MODAL_OPERATION_MASK  0x00000001
-#define USB_VENDOR_ID_MASK    0x0000FFFF
-
-/* ID Header VDO Bit Shifts */
-#define USB_HOST_SHIFT         31
-#define USB_DEVICE_SHIFT       30
-#define SOP_PRODUCT_TYPE_SHIFT 27
-#define MODAL_OPERATION_SHIFT  26
-#define USB_VENDOR_ID_SHIFT    0
-
-
-/* Product VDO */
-#define USB_PRODUCT_ID_SHIFT   16
-#define BCD_DEVICE_SHIFT       0
-#define USB_PRODUCT_ID_MASK    0x0000FFFF
-#define BCD_DEVICE_MASK        0x0000FFFF
-
-/* Cable VDO1 */
-#define HW_VERSION_SHIFT            28
-#define FW_VERSION_SHIFT            24
-#define VDO_VERSION_SHIFT           21
-#define PLUG_TYPE_SHIFT             18
-#define EPR_CAPABLE_SHIFT           17
-#define CABLE_LATENCY_SHIFT         13
-#define CABLE_TERMINATION_SHIFT     11
-#define MAX_VBUS_VOLTAGE_SHIFT      9
-#define SBU_SUPPORTED_SHIFT         8
-#define SBU_TYPE_SHIFT              7
-#define VBUS_CURRENT_SHIFT          5
-#define VBUS_THROUGH_SHIFT          4
-#define SOP_CONTROLLER_SHIFT        3
-#define HW_VERSION_MASK             0x0000000F
-#define FW_VERSION_MASK             0x0000000F
-#define VDO_VERSION_MASK            0x00000007
-#define PLUG_TYPE_MASK              0x00000003
-#define EPR_CAPABLE_MASK            0x00000001
-#define CABLE_LATENCY_MASK          0x0000000F
-#define CABLE_TERMINATION_MASK      0x00000003
-#define MAX_VBUS_VOLTAGE_MASK       0x00000003
-#define SBU_SUPPORTED_MASK          0x00000001
-#define SBU_TYPE_MASK               0x00000001
-#define VBUS_CURRENT_MASK           0x00000003
-#define VBUS_THROUGH_MASK           0x00000001
-#define SOP_CONTROLLER_MASK         0x00000001
-
-/* Cable VDO2 Bit Masks */
-#define MAX_OPERATING_TEMP_MASK     0x000000FF
-#define SHUTDOWN_TEMP_MASK          0x000000FF
-#define RESERVED_CABLE3_MASK        0x00000001
-#define U3_CLD_POWER_MASK           0x00000007
-#define U3_TO_U0_TRANSITION_MASK    0x00000001
-#define PHYSICAL_CONNECTION_MASK    0x00000001
-#define ACTIVE_ELEMENT_MASK         0x00000001
-#define USB4_SUPPORTED_MASK         0x00000001
-#define USB2_HUB_HOPS_MASK          0x00000003
-#define USB2_SUPPORTED_MASK         0x00000001
-#define USB3_2_SUPPORTED_MASK       0x00000001
-#define USB_LANES_SUPPORTED_MASK    0x00000001
-#define OPTICALLY_ISOLATED_MASK     0x00000001
-#define USB4_ASYMMETRIC_MASK        0x00000001
-#define USB_GEN_MASK                0x00000001
-
-/* Cable VDO2 Bit Shifts */
-#define MAX_OPERATING_TEMP_SHIFT     24
-#define SHUTDOWN_TEMP_SHIFT          16
-#define U3_CLD_POWER_SHIFT           12
-#define U3_TO_U0_TRANSITION_SHIFT    11
-#define PHYSICAL_CONNECTION_SHIFT    10
-#define ACTIVE_ELEMENT_SHIFT         9
-#define USB4_SUPPORTED_SHIFT         8
-#define USB2_HUB_HOPS_SHIFT          6
-#define USB2_SUPPORTED_SHIFT         5
-#define USB3_2_SUPPORTED_SHIFT       4
-#define USB_LANES_SUPPORTED_SHIFT    3
-#define OPTICALLY_ISOLATED_SHIFT     2
-#define USB4_ASYMMETRIC_SHIFT        1
-#define USB_GEN_SHIFT                0

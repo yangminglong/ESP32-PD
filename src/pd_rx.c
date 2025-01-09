@@ -35,7 +35,16 @@ extern QueueHandle_t pd_queue_empty;
 static rmt_channel_handle_t pd_rx_chan = NULL;
 static volatile bool pd_rx_ongoing_flag = false;
 
-bool IRAM_ATTR pd_rx_ongoing()
+static bool pd_acknowlegde[6] = {
+    [PD_TARGET_SOP] = true,
+#ifdef TEST_EMARKER_CABLE
+    [PD_TARGET_SOP_P] = true,
+    [PD_TARGET_SOP_PP] = true,
+#endif
+};
+
+bool IRAM_ATTR
+pd_rx_ongoing()
 {
     return pd_rx_ongoing_flag;
 }
@@ -135,20 +144,35 @@ static IRAM_ATTR bool pd_rc_bmc_handle_pulse(uint32_t duration)
 
             if (ctx->symbol_count >= 4)
             {
-                ctx->target = BUILD_LE_UINT32(ctx->symbols, 0);
-
-                switch (ctx->target)
+                switch (BUILD_LE_UINT32(ctx->symbols, 0))
                 {
                 case TARGET_SOP:
+                    ctx->target = PD_TARGET_SOP;
+                    ctx->state = PD_RX_PAYLOAD;
+                    break;
                 case TARGET_SOP_P:
+                    ctx->target = PD_TARGET_SOP_P;
+                    ctx->state = PD_RX_PAYLOAD;
+                    break;
                 case TARGET_SOP_PP:
+                    ctx->target = PD_TARGET_SOP_PP;
+                    ctx->state = PD_RX_PAYLOAD;
+                    break;
                 case TARGET_SOP_PD:
+                    ctx->target = PD_TARGET_SOP_PD;
+                    ctx->state = PD_RX_PAYLOAD;
+                    break;
                 case TARGET_SOP_PPD:
+                    ctx->target = PD_TARGET_SOP_PPD;
                     ctx->state = PD_RX_PAYLOAD;
                     break;
                 case TARGET_HARD_RESET:
+                    ctx->target = PD_TARGET_HARD_RESET;
+                    ctx->state = PD_RX_PAYLOAD;
+                    break;
                 case TARGET_CABLE_RESET:
-                    ctx->state = PD_RX_FINISHED;
+                    ctx->target = PD_TARGET_CABLE_RESET;
+                    ctx->state = PD_RX_PAYLOAD;
                     break;
                 default:
                     ctx->state = PD_RX_INIT;
@@ -211,7 +235,9 @@ static IRAM_ATTR bool pd_rc_bmc_handle_pulse(uint32_t duration)
 
         bool yield = false;
 
-        if (ctx->type == PD_BUF_TYPE_DATA && ctx->target == TARGET_SOP)
+        ctx->dir = pd_acknowlegde[ctx->target] ? PD_PACKET_RECEIVED_ACKNOWLEDGED : PD_PACKET_RECEIVED;
+
+        if (ctx->type == PD_BUF_TYPE_DATA && ctx->dir == PD_PACKET_RECEIVED_ACKNOWLEDGED)
         {
             uint16_t header = ctx->payload[0] | (ctx->payload[1] << 8);
 
@@ -222,10 +248,12 @@ static IRAM_ATTR bool pd_rc_bmc_handle_pulse(uint32_t duration)
             uint8_t message_type = header & 0x1F;
             bool is_data = num_data_objects > 0;
 
+            pd_rx_ack_t ack = {.message_id = message_id, .target = ctx->target};
+
             /* do not respond to our packets or to GoodCRC */
             if (data_role == PD_DATA_ROLE_DFP && (is_data || message_type != PD_CONTROL_GOOD_CRC))
             {
-                if (xQueueSendFromISR(pd_queue_rx_ack, &message_id, NULL) != pdTRUE)
+                if (xQueueSendFromISR(pd_queue_rx_ack, &ack, NULL) != pdTRUE)
                 {
                     ESP_LOGE(TAG, "Failed to enqueue tx ack");
                 }

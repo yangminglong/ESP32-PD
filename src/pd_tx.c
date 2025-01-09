@@ -21,6 +21,7 @@ extern const rmt_signal_conn_t rmt_periph_signals; // External declaration of RM
 
 #include "pd_config.h"
 #include "pd_coding.h"
+#include "pd_proto.h"
 #include "pd_rx.h"
 #include "pd_tx.h"
 #include "pd.h"
@@ -34,6 +35,11 @@ extern const rmt_signal_conn_t rmt_periph_signals; // External declaration of RM
 
 static rmt_channel_handle_t pd_tx_chan;
 static rmt_encoder_handle_t pd_tx_encoder;
+static QueueHandle_t pd_queue_tx;
+static QueueHandle_t pd_queue_tx_acks;
+
+extern QueueHandle_t pd_queue_rx_data_log;
+extern QueueHandle_t pd_queue_empty;
 
 static volatile bool pd_tx_ongoing_flag = false;
 
@@ -146,10 +152,38 @@ static IRAM_ATTR size_t pd_tx_enc_cbr(const void *data, size_t data_size,
         {
             if (ctx->sync_symbols >= 4)
             {
+                ctx->data_pos = 1;
                 ctx->state = PD_TX_DATA;
                 break;
             }
-            uint8_t sync_symbols[] = {SYNC_1, SYNC_1, SYNC_1, SYNC_2};
+            uint32_t sync_symbol = 0;
+            uint8_t sync_symbols[4];
+
+            switch ((pd_rx_target_t)((uint8_t *)data)[0])
+            {
+            case PD_TARGET_SOP:
+                sync_symbol = TARGET_SOP;
+                break;
+            case PD_TARGET_SOP_P:
+                sync_symbol = TARGET_SOP_P;
+                break;
+            case PD_TARGET_SOP_PP:
+                sync_symbol = TARGET_SOP_PP;
+                break;
+            case PD_TARGET_SOP_PD:
+                sync_symbol = TARGET_SOP_PD;
+                break;
+            case PD_TARGET_SOP_PPD:
+                sync_symbol = TARGET_SOP_PPD;
+                break;
+            case PD_TARGET_HARD_RESET:
+                sync_symbol = TARGET_HARD_RESET;
+                break;
+            case PD_TARGET_CABLE_RESET:
+                sync_symbol = TARGET_CABLE_RESET;
+                break;
+            }
+            SPLIT_LE_UINT32(sync_symbol, sync_symbols, 0);
 
             add_half(ctx, symbols, &symbols_used, line_code_encode[sync_symbols[ctx->sync_symbols]]);
             ctx->sync_symbols++;
@@ -221,6 +255,110 @@ bool IRAM_ATTR pd_tx_done_cbr(rmt_channel_handle_t tx_chan, const rmt_tx_done_ev
     return false;
 }
 
+static uint8_t pd_tx_message_id = 0;
+
+void pd_tx_task(void *pvParameters)
+{
+    uint8_t buffer[1 + 2 + 7 * 4 + 4];
+    pd_msg *msg;
+
+    while (1)
+    {
+        if (xQueueReceive(pd_queue_tx, &msg, portMAX_DELAY) != pdTRUE)
+        {
+            continue;
+        }
+
+        msg->header.message_id = pd_tx_message_id;
+        if (!msg->target)
+        {
+            msg->target = PD_TARGET_SOP;
+        }
+
+        /* we can only handle normal messages with header, pdos and crc */
+        size_t length = 0;
+
+        buffer[0] = msg->target;
+        length += 1;
+
+        /* construct the 16 bit header  */
+        pd_build_msg_header(&msg->header, &buffer[length]);
+        length += 2;
+
+        /* append all PDOs*/
+        for (int pdo = 0; pdo < msg->header.num_data_objects; pdo++)
+        {
+            SPLIT_LE_UINT32(msg->pdo[pdo], buffer, length);
+            length += 4;
+        }
+
+        /* finally calc and append the CRC */
+        uint32_t crc = crc32buf(&buffer[1], length - 1);
+        SPLIT_LE_UINT32(crc, buffer, length);
+        length += 4;
+
+        /* now retry three times to send the message and get an ACK for it */
+        uint32_t retries = 3;
+        while (retries)
+        {
+            uint32_t ack_id = 0;
+
+            /* flush ack queue first */
+            while (xQueueReceive(pd_queue_tx_acks, &ack_id, 0))
+            {
+            }
+
+            /* transmit our buffer */
+            pd_tx(buffer, length);
+
+            bool ack = false;
+
+            /* and wait for the RX path to detect an ack */
+            if (xQueueReceive(pd_queue_tx_acks, &ack_id, 10 / portTICK_PERIOD_MS) == pdTRUE)
+            {
+                ack = (ack_id == pd_tx_message_id);
+            }
+
+            if (!ack)
+            {
+                retries--;
+            }
+
+            /* log the message */
+            pd_rx_buf_t *rx_data;
+            if (xQueueReceive(pd_queue_empty, &rx_data, portMAX_DELAY))
+            {
+                memset(rx_data, 0x00, sizeof(pd_rx_buf_t));
+
+                rx_data->type = PD_BUF_TYPE_DATA;
+                rx_data->target = msg->target;
+                rx_data->dir = ack ? PD_PACKET_SENT_ACKNOWLEDGED : PD_PACKET_SENT;
+
+                rx_data->length = length - 1;
+                memcpy(rx_data->payload, &buffer[1], rx_data->length);
+
+                if (xQueueSend(pd_queue_rx_data_log, &rx_data, portMAX_DELAY) != pdTRUE)
+                {
+                    ESP_LOGE(TAG, "Failed to return buffer to pd_queue_empty");
+                    free(rx_data);
+                }
+            }
+
+            /* was if for our message? */
+            if (ack)
+            {
+                pd_tx_message_id = (pd_tx_message_id + 1) & MESSAGE_ID_MASK;
+                break;
+            }
+        }
+
+        if (msg->cbr)
+        {
+            msg->cbr(msg, retries > 0);
+        }
+    }
+}
+
 void pd_tx_init()
 {
     const rmt_tx_channel_config_t tx_chan_config = {
@@ -257,6 +395,22 @@ void pd_tx_init()
 
     gpio_set_direction(GPIO_TX, GPIO_MODE_INPUT);
     gpio_set_pull_mode(GPIO_TX, GPIO_FLOATING);
+
+    pd_queue_tx = xQueueCreate(PD_BUFFER_COUNT, sizeof(pd_msg *));
+    if (pd_queue_tx == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create pd_queue_tx");
+        return;
+    }
+
+    pd_queue_tx_acks = xQueueCreate(PD_BUFFER_COUNT, sizeof(uint32_t));
+    if (pd_queue_tx_acks == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create pd_queue_tx_acks");
+        return;
+    }
+
+    xTaskCreate(pd_tx_task, "pd_tx_task", 4096, NULL, configMAX_PRIORITIES - 2, NULL);
     ESP_LOGI(TAG, "    Done");
 }
 
@@ -303,4 +457,27 @@ uint16_t IRAM_ATTR pd_tx_header(
     header |= (message_type & 0x1F);
 
     return header;
+}
+
+void pd_tx_enqueue(pd_msg *msg)
+{
+    pd_msg *copy = malloc(sizeof(pd_msg));
+    memcpy(copy, msg, sizeof(pd_msg));
+
+    /* Return the buffer to the empty buffer queue */
+    if (xQueueSend(pd_queue_tx, &copy, portMAX_DELAY) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "Failed to send buffer to pd_queue_tx");
+        free(copy);
+    }
+    vPortYield();
+}
+
+void pd_tx_ack_received(uint32_t msg_id)
+{
+    /* Return the buffer to the empty buffer queue */
+    if (xQueueSend(pd_queue_tx_acks, &msg_id, portMAX_DELAY) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "Failed to send buffer to pd_queue_tx_acks");
+    }
 }
