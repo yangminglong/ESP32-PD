@@ -3,7 +3,6 @@
 #include <stdint.h>
 #include "pd_types.h"
 
-#define TEST_EMARKER_CABLE
 
 // #define GPIO_CC1 3
 #define GPIO_PD 4
@@ -18,4 +17,5 @@
 #define PD_LOG_TASK_PRIO (tskIDLE_PRIORITY + 1)
 
 
+//#define PD_TEST_EMARKER_CABLE
 #define PD_LOG_TX_PACKETS

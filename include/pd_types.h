@@ -102,7 +102,7 @@ typedef enum
     PD_PACKET_SENT_ACKNOWLEDGED
 } pd_packet_dir_t;
 
-typedef struct 
+typedef struct
 {
     pd_rx_target_t target;
     uint8_t message_id;
@@ -147,9 +147,11 @@ typedef struct
     bool connected;
     uint8_t message_id;
     uint8_t requested_object;
+    bool requested_pps;
     uint8_t accepted_object;
     uint32_t request_voltage_mv;
     uint32_t request_current_ma;
+    uint64_t request_last_timestamp;
 } pd_state_t;
 
 typedef enum

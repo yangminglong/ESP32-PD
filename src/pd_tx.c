@@ -308,8 +308,8 @@ void IRAM_ATTR pd_tx_task(void *pvParameters)
 
         /* now retry three times to send the message and get an ACK for it */
         bool ack = false;
-        uint32_t retries = 3;
-        while (retries-- && !ack)
+        uint32_t retries = 1;
+        do
         {
             /* transmit our buffer */
             if (!msg->immediate)
@@ -332,7 +332,7 @@ void IRAM_ATTR pd_tx_task(void *pvParameters)
 #ifdef PD_LOG_TX_PACKETS
             /* log the message */
             pd_rx_buf_t *rx_data;
-            if (xQueueReceive(pd_queue_empty, &rx_data, portMAX_DELAY))
+            if (xQueueReceive(pd_queue_empty, &rx_data, 0))
             {
                 memset(rx_data, 0x00, sizeof(pd_rx_buf_t));
 
@@ -343,20 +343,20 @@ void IRAM_ATTR pd_tx_task(void *pvParameters)
                 rx_data->length = length - 1;
                 memcpy(rx_data->payload, &buffer[1], rx_data->length);
 
-                if (xQueueSend(pd_queue_rx_data_log, &rx_data, portMAX_DELAY) != pdTRUE)
+                if (xQueueSend(pd_queue_rx_data_log, &rx_data, 0) != pdTRUE)
                 {
                     ESP_LOGE(TAG, "Failed to return buffer to pd_queue_empty");
                     free(rx_data);
                 }
             }
 #endif
-        }
+        } while (retries-- && !ack);
 
         if (ack)
         {
             pd_tx_message_id = (pd_tx_message_id + 1) & MESSAGE_ID_MASK;
         }
-        
+
         if (msg->cbr)
         {
             msg->cbr(msg, ack);

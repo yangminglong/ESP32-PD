@@ -140,8 +140,10 @@ void pd_protocol_task(void *pvParameters)
 
     while (1)
     {
-        if (xQueueReceive(pd_queue_rx_data, &rx_data, portMAX_DELAY) != pdTRUE)
+        if (xQueueReceive(pd_queue_rx_data, &rx_data, 100 / portTICK_PERIOD_MS) != pdTRUE)
         {
+            /* call some functions periodically */
+            pd_request_timer();
             continue;
         }
 
@@ -204,7 +206,6 @@ void pd_protocol_task(void *pvParameters)
                     if (state.requested_object != 0)
                     {
                         state.accepted_object = state.requested_object;
-                        state.requested_object = 0;
                     }
                     break;
 
@@ -271,8 +272,10 @@ void pd_protocol_task(void *pvParameters)
                 break;
 
                 case PD_DATA_SOURCE_CAPABILITIES:
+                {
                     state.requested_object = 0;
-                    for (uint32_t index = 0; index < hdr.num_data_objects; index++)
+
+                    for (uint32_t index = 0; !state.requested_object && index < hdr.num_data_objects; index++)
                     {
                         uint32_t pdo_value = pdos[index];
                         uint32_t type = (pdo_value >> 30) & 0x03;
@@ -287,6 +290,33 @@ void pd_protocol_task(void *pvParameters)
                             if (voltage == state.request_voltage_mv && current >= state.request_current_ma)
                             {
                                 state.requested_object = index + 1;
+                                state.requested_pps = false;
+                            }
+                            break;
+                        }
+
+                        case 3:
+                        {
+                            uint32_t subtype = (pdo_value >> 28) & 0x03;
+
+                            switch (subtype)
+                            {
+                            case 0:
+                            {
+                                uint32_t max_voltage = ((pdo_value >> 17) & 0xFF) * 100; /* in 100mV units */
+                                uint32_t min_voltage = ((pdo_value >> 8) & 0xFF) * 100;  /* in 100mV units */
+                                uint32_t max_current = ((pdo_value >> 0) & 0x7F) * 50;   /* in 50mA units */
+
+                                if (min_voltage <= state.request_voltage_mv && max_voltage >= state.request_voltage_mv && max_current >= state.request_current_ma)
+                                {
+                                    state.requested_object = index + 1;
+                                    state.requested_pps = true;
+                                }
+
+                                break;
+                            }
+                            default:
+                                break;
                             }
                             break;
                         }
@@ -295,7 +325,14 @@ void pd_protocol_task(void *pvParameters)
                         }
                     }
 
+                    if (!state.requested_object)
+                    {
+                        state.requested_object = 1;
+                    }
+                    pd_refresh_request(true);
+
                     break;
+                }
                 }
             }
 
@@ -319,27 +356,6 @@ void pd_protocol_task(void *pvParameters)
         }
         }
 
-        if (state.requested_object)
-        {
-            pd_msg response = {0};
-
-            response.target = PD_TARGET_SOP;
-            response.immediate = true;
-            response.header.num_data_objects = 1;
-            response.header.power_role = PD_DATA_ROLE_UFP;
-            response.header.spec_revision = 2;
-            response.header.data_role = PD_DATA_ROLE_UFP;
-            response.header.message_type = PD_DATA_REQUEST;
-
-            response.pdo[0] |= (state.requested_object) << 28;
-            response.pdo[0] |= (state.request_current_ma / 10) << 10;
-            response.pdo[0] |= (state.request_current_ma / 10) << 0;
-
-            pd_tx_enqueue(&response);
-
-            state.requested_object = 0;
-        }
-
     skip:
 
         /* Return the buffer to the log queue */
@@ -348,6 +364,77 @@ void pd_protocol_task(void *pvParameters)
             ESP_LOGE(TAG, "Failed to return buffer to pd_queue_empty");
             free(rx_data);
         }
+    }
+}
+
+void pd_refresh_request(bool immediate)
+{
+    if (state.requested_pps)
+    {
+        pd_request_pps(state.requested_object, state.request_voltage_mv, state.request_current_ma, immediate);
+    }
+    else
+    {
+        pd_request(state.requested_object, state.request_current_ma, immediate);
+    }
+    state.request_last_timestamp = esp_timer_get_time();
+}
+
+void pd_request(uint8_t object, uint32_t current_ma, bool immediate)
+{
+    pd_msg response = {0};
+
+    response.target = PD_TARGET_SOP;
+    response.immediate = immediate;
+    response.header.num_data_objects = 1;
+    response.header.power_role = PD_DATA_ROLE_UFP;
+    response.header.spec_revision = 2;
+    response.header.data_role = PD_DATA_ROLE_UFP;
+    response.header.message_type = PD_DATA_REQUEST;
+
+    response.pdo[0] |= (object) << 28;
+    response.pdo[0] |= (current_ma / 10) << 10;
+    response.pdo[0] |= (current_ma / 10) << 0;
+
+    pd_tx_enqueue(&response);
+}
+
+void pd_request_pps(uint8_t object, uint32_t voltage_mv, uint32_t current_ma, bool immediate)
+{
+    pd_msg response = {0};
+
+    response.target = PD_TARGET_SOP;
+    response.immediate = immediate;
+    response.header.num_data_objects = 1;
+    response.header.power_role = PD_DATA_ROLE_UFP;
+    response.header.spec_revision = 2;
+    response.header.data_role = PD_DATA_ROLE_UFP;
+    response.header.message_type = PD_DATA_REQUEST;
+
+    response.pdo[0] |= (object) << 28;
+    response.pdo[0] |= (voltage_mv / 20) << 9;
+    response.pdo[0] |= (current_ma / 50) << 0;
+
+    pd_tx_enqueue(&response);
+}
+
+/* re-request the same object again periodically */
+void pd_request_timer()
+{
+    if (!state.requested_object || !state.accepted_object)
+    {
+        return;
+    }
+
+    if (state.requested_object != state.accepted_object)
+    {
+        return;
+    }
+
+    uint64_t timestamp = esp_timer_get_time();
+    if (timestamp - state.request_last_timestamp > (PD_REQUEST_REFRESH_MS) * 1000)
+    {
+        pd_refresh_request(false);
     }
 }
 
@@ -476,10 +563,10 @@ void pd_log_task(void *pvParameters)
                 case PD_DATA_REQUEST:
                 {
                     ESP_LOGI(TAG, "    Request");
-                    uint8_t object = (pdos[0] >> 28) & 0x1F;
+                    uint8_t object = ((pdos[0] >> 28) & 0x1F) - 1;
                     uint32_t operating_current = ((pdos[0] >> 10) & 0x3FF) * 10;
                     uint32_t max_operating_current = ((pdos[0] >> 0) & 0x3FF) * 10;
-                    ESP_LOGI(TAG, "      Object #%" PRIu8, object);
+                    ESP_LOGI(TAG, "      Object #%" PRIu8 " (ToDo: dumping in fixed format, will not match when it's PPS)", object);
                     ESP_LOGI(TAG, "      Current     %" PRIu32 "mA", operating_current);
                     ESP_LOGI(TAG, "      Current Max %" PRIu32 "mA", max_operating_current);
                     break;
@@ -692,7 +779,7 @@ void IRAM_ATTR pd_rx_ack_task()
 void pd_state_reset()
 {
     memset(&state, 0, sizeof(state));
-    state.request_voltage_mv = 12000;
+    state.request_voltage_mv = 12345;
     state.request_current_ma = 1000;
 }
 
