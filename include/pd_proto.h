@@ -148,7 +148,7 @@ typedef struct
     pd_data_role_t power_role;
     uint8_t spec_revision;
     pd_data_role_t data_role;
-    uint8_t message_type;
+    pd_message_type_t message_type;
 } pd_msg_header;
 
 typedef struct pd_msg_s pd_msg;

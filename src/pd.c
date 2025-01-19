@@ -211,6 +211,8 @@ void pd_protocol_task(void *pvParameters)
 
                 case PD_CONTROL_PS_RDY:
                     break;
+                default:
+                    break;
                 }
             }
             else
@@ -333,6 +335,8 @@ void pd_protocol_task(void *pvParameters)
 
                     break;
                 }
+                default:
+                    break;
                 }
             }
 
@@ -378,6 +382,21 @@ void pd_refresh_request(bool immediate)
         pd_request(state.requested_object, state.request_current_ma, immediate);
     }
     state.request_last_timestamp = esp_timer_get_time();
+}
+
+void pd_send_control(pd_message_type_t message_id)
+{
+    pd_msg response = {0};
+
+    response.target = PD_TARGET_SOP;
+    response.immediate = false;
+    response.header.num_data_objects = 0;
+    response.header.power_role = PD_DATA_ROLE_UFP;
+    response.header.spec_revision = 2;
+    response.header.data_role = PD_DATA_ROLE_UFP;
+    response.header.message_type = message_id;
+
+    pd_tx_enqueue(&response);
 }
 
 void pd_request(uint8_t object, uint32_t current_ma, bool immediate)
@@ -539,6 +558,10 @@ void pd_log_task(void *pvParameters)
                 case PD_CONTROL_PS_RDY:
                     ESP_LOGI(TAG, "    Power supply ready");
                     break;
+
+                default:
+                    ESP_LOGI(TAG, "    Not implemented yet: 0x02%" PRIx8, hdr.message_type);
+                    break;
                 }
             }
             else
@@ -558,7 +581,6 @@ void pd_log_task(void *pvParameters)
                     pd_dump_vdm(&vdm);
                     break;
                 }
-                break;
 
                 case PD_DATA_REQUEST:
                 {
@@ -573,6 +595,7 @@ void pd_log_task(void *pvParameters)
                 }
 
                 case PD_DATA_SOURCE_CAPABILITIES:
+                {
                     ESP_LOGI(TAG, "    Source Capabilities:");
                     for (uint32_t index = 0; index < hdr.num_data_objects; index++)
                     {
@@ -676,11 +699,16 @@ void pd_log_task(void *pvParameters)
                         }
                         }
                     }
-
                     break;
                 }
-            }
 
+                default:
+                {
+                    ESP_LOGI(TAG, "    Not implemented yet: 0x02%" PRIx8, hdr.message_type);
+                    break;
+                }
+                }
+            }
             break;
         }
         case PD_BUF_TYPE_SYMBOLS:
