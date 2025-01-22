@@ -16,6 +16,8 @@
 #include "argtable3/argtable3.h"
 
 #include "pd.h"
+#include "pd_tx.h"
+#include "pd_proto.h"
 
 #define PROMPT_STR "usb_pd"
 #define TAG "cmd"
@@ -32,18 +34,25 @@ esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
 
 static struct
 {
-    struct arg_str *object;
-    struct arg_str *voltage_mv;
-    struct arg_str *current_ma;
+    struct arg_int *object;
+    struct arg_int *voltage_mv;
+    struct arg_int *current_ma;
     struct arg_end *end;
 } cmd_req_pps_args;
 
 static struct
 {
-    struct arg_str *object;
-    struct arg_str *current_ma;
+    struct arg_int *object;
+    struct arg_int *current_ma;
     struct arg_end *end;
 } cmd_req_obj_args;
+
+static struct
+{
+    struct arg_int *command;
+    struct arg_int *mode;
+    struct arg_end *end;
+} cmd_vdm_args;
 
 static int cmd_req_pps(int argc, char **argv)
 {
@@ -54,13 +63,9 @@ static int cmd_req_pps(int argc, char **argv)
         return 1;
     }
 
-    const char *object = cmd_req_pps_args.object->sval[0];
-    const char *voltage_mv = cmd_req_pps_args.voltage_mv->sval[0];
-    const char *current_ma = cmd_req_pps_args.current_ma->sval[0];
-
-    uint16_t arg_obj = atoi(object);
-    uint16_t arg_mv = atoi(voltage_mv);
-    uint16_t arg_ma = atoi(current_ma);
+    uint16_t arg_obj = *cmd_req_pps_args.object->ival;
+    uint16_t arg_mv = *cmd_req_pps_args.voltage_mv->ival;
+    uint16_t arg_ma = *cmd_req_pps_args.current_ma->ival;
 
     pd_request_pps(arg_obj, arg_mv, arg_ma, 0);
 
@@ -76,13 +81,47 @@ static int cmd_req_obj(int argc, char **argv)
         return 1;
     }
 
-    const char *object = cmd_req_obj_args.object->sval[0];
-    const char *current_ma = cmd_req_obj_args.current_ma->sval[0];
-
-    uint16_t arg_obj = atoi(object);
-    uint16_t arg_ma = atoi(current_ma);
+    uint16_t arg_obj = *cmd_req_pps_args.object->ival;
+    uint16_t arg_ma = *cmd_req_pps_args.current_ma->ival;
 
     pd_request(arg_obj, arg_ma, 0);
+
+    return 0;
+}
+
+static int cmd_vdm(int argc, char **argv)
+{
+    int nerrors = arg_parse(argc, argv, (void **)&cmd_vdm_args);
+    if (nerrors != 0)
+    {
+        arg_print_errors(stderr, cmd_vdm_args.end, argv[0]);
+        return 1;
+    }
+
+    uint16_t arg_command = *cmd_vdm_args.command->ival;
+    uint16_t arg_mode = cmd_vdm_args.mode->count ? *cmd_vdm_args.mode->ival : 0;
+
+    pd_msg response = {0};
+
+    response.target = PD_TARGET_SOP;
+    response.header.power_role = PD_DATA_ROLE_UFP;
+    response.header.spec_revision = 1;
+    response.header.message_type = PD_VENDOR_MESSAGE;
+
+    pd_vdm_packet resp_vdm = {
+        .vdm_header = {
+            .svid = PD_VDM_SID_PD,
+            .vdm_type = 1,
+            .vdm_version_major = 1,
+            .vdm_version_minor = 0,
+            .object_position = arg_mode,
+            .command_type = PD_VDM_CMD_TYPE_REQ,
+            .command = (pd_vdm_command)arg_command,
+        },
+    };
+
+    pd_build_vdm(&resp_vdm, &response);
+    pd_tx_enqueue(&response);
 
     return 0;
 }
@@ -93,8 +132,6 @@ static int cmd_get_src_cap(int argc, char **argv)
 
     return 0;
 }
-
-
 
 static int list_partitions(int argc, char **argv)
 {
@@ -141,7 +178,7 @@ const esp_console_cmd_t req_get_src_cap_cmd = {
     .hint = NULL,
     .func = &cmd_get_src_cap,
     .argtable = NULL};
-    
+
 const esp_console_cmd_t req_pps_cmd = {
     .command = "req_pps",
     .help = "Request a PPS mode."
@@ -158,13 +195,43 @@ const esp_console_cmd_t req_obj_cmd = {
     .func = &cmd_req_obj,
     .argtable = &cmd_req_obj_args};
 
+const esp_console_cmd_t vdm_cmd = {
+    .command = "vdm",
+    .help = "Send a Vendor Defined Message (VDM) request.\n"
+            "\n"
+            "This command allows sending VDM requests as specified by the USB Power Delivery protocol.\n"
+            "\n"
+            "Parameters:\n"
+            "  - command:\n"
+            "    0 = Reserved, Shall Not be used\n"
+            "    1 = Discover Identity\n"
+            "    2 = Discover SVIDs\n"
+            "    3 = Discover Modes\n"
+            "    4 = Enter Mode\n"
+            "    5 = Exit Mode\n"
+            "    6 = Attention\n"
+            "    7-15 = Reserved, Shall Not be used\n"
+            "    16…31 = SVID Specific Commands\n"
+            "\n"
+            "  - object:\n"
+            "    For Enter Mode, Exit Mode, and Attention Commands (Requests/Responses):\n"
+            "      - 000b = Reserved and Shall Not be used\n"
+            "      - 001b…110b = Index into the list of VDOs to identify the desired Mode VDO\n"
+            "      - 111b = Exit all Active Modes (equivalent to a power-on reset). Shall only be used with the Exit Mode Command.\n"
+            "    Commands 0…3, 7…15:\n"
+            "      - 000b\n"
+            "      - 001b…111b = Reserved and Shall Not be used\n"
+            "    SVID Specific Commands (16…31) are defined by the SVID.\n",
+    .hint = NULL,
+    .func = &cmd_vdm,
+    .argtable = &cmd_vdm_args};
+
 const esp_console_cmd_t cmd_list_partitions = {
     .command = "list_partitions",
     .help = "List all partitions in the device",
     .hint = NULL,
     .func = &list_partitions,
 };
-
 
 void cmd_init()
 {
@@ -185,19 +252,24 @@ void cmd_init()
 #endif
     register_nvs();
 
-    cmd_req_pps_args.object = arg_str1(NULL, NULL, "<object>", "object index");
-    cmd_req_pps_args.voltage_mv = arg_str1(NULL, NULL, "<voltage_mv>", "requested voltage");
-    cmd_req_pps_args.current_ma = arg_str1(NULL, NULL, "<current_ma>", "maximum current");
+    cmd_req_pps_args.object = arg_int1(NULL, NULL, "<object>", "object index");
+    cmd_req_pps_args.voltage_mv = arg_int1(NULL, NULL, "<voltage_mv>", "requested voltage");
+    cmd_req_pps_args.current_ma = arg_int1(NULL, NULL, "<current_ma>", "maximum current");
     cmd_req_pps_args.end = arg_end(2);
 
-    cmd_req_obj_args.object = arg_str1(NULL, NULL, "<object>", "object index");
-    cmd_req_obj_args.current_ma = arg_str1(NULL, NULL, "<current_ma>", "maximum current");
+    cmd_req_obj_args.object = arg_int1(NULL, NULL, "<object>", "object index");
+    cmd_req_obj_args.current_ma = arg_int1(NULL, NULL, "<current_ma>", "maximum current");
     cmd_req_obj_args.end = arg_end(2);
+
+    cmd_vdm_args.command = arg_int1(NULL, NULL, "<command>", "command to send");
+    cmd_vdm_args.mode = arg_int0(NULL, NULL, "<mode>", "mode to enter");
+    cmd_vdm_args.end = arg_end(2);
 
     ESP_ERROR_CHECK(esp_console_cmd_register(&cmd_list_partitions));
     ESP_ERROR_CHECK(esp_console_cmd_register(&req_pps_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&req_obj_cmd));
     ESP_ERROR_CHECK(esp_console_cmd_register(&req_get_src_cap_cmd));
+    ESP_ERROR_CHECK(esp_console_cmd_register(&vdm_cmd));
 }
 
 void cmd_main(void)

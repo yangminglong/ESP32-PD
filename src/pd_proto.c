@@ -96,9 +96,9 @@ void pd_dump_vdm(pd_vdm_packet *pkt)
     }
 }
 
-void pd_parse_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
+void pd_parse_vdm(pd_vdm_packet *pkt, pd_msg *msg)
 {
-    uint32_t vdm_header = pdos[0];
+    uint32_t vdm_header = msg->pdo[0];
 
     pkt->vdm_header.svid = (vdm_header >> SVID_SHIFT) & SVID_MASK;
     pkt->vdm_header.vdm_type = (vdm_header >> VDM_TYPE_SHIFT) & VDM_TYPE_MASK;
@@ -112,23 +112,23 @@ void pd_parse_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
     if (pkt->vdm_header.command_type == 1)
     {
         /* ID Header VDO */
-        uint32_t id_header = pdos[1];
+        uint32_t id_header = msg->pdo[1];
         pkt->id_header.usb_host = (id_header >> USB_HOST_SHIFT) & USB_HOST_MASK;
         pkt->id_header.usb_device = (id_header >> USB_DEVICE_SHIFT) & USB_DEVICE_MASK;
         pkt->id_header.sop_product_type = (id_header >> SOP_PRODUCT_TYPE_SHIFT) & SOP_PRODUCT_TYPE_MASK;
         pkt->id_header.modal_operation = (id_header >> MODAL_OPERATION_SHIFT) & MODAL_OPERATION_MASK;
         pkt->id_header.usb_vendor_id = (id_header >> USB_VENDOR_ID_SHIFT) & USB_VENDOR_ID_MASK;
         /* Cert Stat VDO */
-        pkt->crt_stat.usb_if_xid = pdos[2];
+        pkt->crt_stat.usb_if_xid = msg->pdo[2];
         /* Product VDO */
-        uint32_t product_vdo = pdos[3];
+        uint32_t product_vdo = msg->pdo[3];
         pkt->product.usb_product_id = (product_vdo >> USB_PRODUCT_ID_SHIFT) & USB_PRODUCT_ID_MASK;
         pkt->product.bcd_device = (product_vdo >> BCD_DEVICE_SHIFT) & BCD_DEVICE_MASK;
 
         if (pkt->id_header.sop_product_type == 3 || pkt->id_header.sop_product_type == 4)
         {
             /* Cable VDO1 */
-            uint32_t cable_vdo1 = pdos[4];
+            uint32_t cable_vdo1 = msg->pdo[4];
             pkt->cable_1.hw_version = (cable_vdo1 >> HW_VERSION_SHIFT) & HW_VERSION_MASK;
             pkt->cable_1.fw_version = (cable_vdo1 >> FW_VERSION_SHIFT) & FW_VERSION_MASK;
             pkt->cable_1.vdo_version = (cable_vdo1 >> VDO_VERSION_SHIFT) & VDO_VERSION_MASK;
@@ -146,7 +146,7 @@ void pd_parse_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
             if (pkt->id_header.sop_product_type == 4)
             {
                 /* Cable VDO2 */
-                uint32_t cable_vdo2 = pdos[5];
+                uint32_t cable_vdo2 = msg->pdo[5];
                 pkt->cable_2.max_operating_temp = (cable_vdo2 >> MAX_OPERATING_TEMP_SHIFT) & MAX_OPERATING_TEMP_MASK;
                 pkt->cable_2.shutdown_temp = (cable_vdo2 >> SHUTDOWN_TEMP_SHIFT) & SHUTDOWN_TEMP_MASK;
                 pkt->cable_2.u3_cld_power = (cable_vdo2 >> U3_CLD_POWER_SHIFT) & U3_CLD_POWER_MASK;
@@ -166,7 +166,7 @@ void pd_parse_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
     }
 }
 
-void pd_build_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
+void pd_build_vdm(pd_vdm_packet *pkt, pd_msg *msg)
 {
     uint32_t header = 0;
     header |= ((pkt->vdm_header.svid & SVID_MASK) << SVID_SHIFT);
@@ -176,24 +176,25 @@ void pd_build_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
     header |= ((pkt->vdm_header.object_position & OBJ_POS_MASK) << OBJ_POS_SHIFT);
     header |= ((pkt->vdm_header.command_type & CMD_TYPE_MASK) << CMD_TYPE_SHIFT);
     header |= ((pkt->vdm_header.command & COMMAND_MASK) << COMMAND_SHIFT);
-    pdos[0] = header;
+    msg->header.num_data_objects = 0;
+    msg->pdo[msg->header.num_data_objects++] = header;
 
     /* 0 REQ, 1 ACK  */
     if (pkt->vdm_header.command_type == 1)
     {
         /* ID Header VDO */
-        pdos[1] = ((pkt->id_header.usb_host & USB_HOST_MASK) << USB_HOST_SHIFT) |
-                  ((pkt->id_header.usb_device & USB_DEVICE_MASK) << USB_DEVICE_SHIFT) |
-                  ((pkt->id_header.sop_product_type & SOP_PRODUCT_TYPE_MASK) << SOP_PRODUCT_TYPE_SHIFT) |
-                  ((pkt->id_header.modal_operation & MODAL_OPERATION_MASK) << MODAL_OPERATION_SHIFT) |
-                  ((pkt->id_header.usb_vendor_id & USB_VENDOR_ID_MASK) << USB_VENDOR_ID_SHIFT);
+        msg->pdo[msg->header.num_data_objects++] = ((pkt->id_header.usb_host & USB_HOST_MASK) << USB_HOST_SHIFT) |
+                                                    ((pkt->id_header.usb_device & USB_DEVICE_MASK) << USB_DEVICE_SHIFT) |
+                                                    ((pkt->id_header.sop_product_type & SOP_PRODUCT_TYPE_MASK) << SOP_PRODUCT_TYPE_SHIFT) |
+                                                    ((pkt->id_header.modal_operation & MODAL_OPERATION_MASK) << MODAL_OPERATION_SHIFT) |
+                                                    ((pkt->id_header.usb_vendor_id & USB_VENDOR_ID_MASK) << USB_VENDOR_ID_SHIFT);
 
         /* Cert Stat VDO */
-        pdos[2] = pkt->crt_stat.usb_if_xid;
+        msg->pdo[msg->header.num_data_objects++] = pkt->crt_stat.usb_if_xid;
 
         /* Product VDO */
-        pdos[3] = ((pkt->product.usb_product_id & USB_PRODUCT_ID_MASK) << USB_PRODUCT_ID_SHIFT) |
-                  ((pkt->product.bcd_device & BCD_DEVICE_MASK) << BCD_DEVICE_SHIFT);
+        msg->pdo[msg->header.num_data_objects++] = ((pkt->product.usb_product_id & USB_PRODUCT_ID_MASK) << USB_PRODUCT_ID_SHIFT) |
+                                                    ((pkt->product.bcd_device & BCD_DEVICE_MASK) << BCD_DEVICE_SHIFT);
 
         if (pkt->id_header.sop_product_type == 3 || pkt->id_header.sop_product_type == 4)
         {
@@ -212,7 +213,7 @@ void pd_build_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
             cable_vdo1 |= (pkt->cable_1.vbus_through & VBUS_THROUGH_MASK) << VBUS_THROUGH_SHIFT;
             cable_vdo1 |= (pkt->cable_1.sop_controller & SOP_CONTROLLER_MASK) << SOP_CONTROLLER_SHIFT;
             cable_vdo1 |= (pkt->cable_1.usb_speed & USB_SPEED_MASK) << USB_SPEED_SHIFT;
-            pdos[4] = cable_vdo1;
+            msg->pdo[msg->header.num_data_objects++] = cable_vdo1;
 
             if (pkt->id_header.sop_product_type == 4)
             {
@@ -232,7 +233,7 @@ void pd_build_vdm(pd_vdm_packet *pkt, uint32_t pdos[7])
                 cable_vdo2 |= (pkt->cable_2.optically_isolated & OPTICALLY_ISOLATED_MASK) << OPTICALLY_ISOLATED_SHIFT;
                 cable_vdo2 |= (pkt->cable_2.usb4_asymmetric & USB4_ASYMMETRIC_MASK) << USB4_ASYMMETRIC_SHIFT;
                 cable_vdo2 |= (pkt->cable_2.usb_gen & USB_GEN_MASK) << USB_GEN_SHIFT;
-                pdos[5] = cable_vdo2;
+                msg->pdo[msg->header.num_data_objects++] = cable_vdo2;
             }
         }
     }

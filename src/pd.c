@@ -160,10 +160,10 @@ void pd_protocol_task(void *pvParameters)
             pd_msg_header hdr;
             pd_parse_msg_header(&hdr, rx_data->payload);
 
-            uint32_t pdos[8];
+            pd_msg rx_msg;
             for (int i = 0; i < hdr.num_data_objects; i++)
             {
-                pdos[i] = BUILD_LE_UINT32(rx_data->payload, 2 + i * 4);
+                rx_msg.pdo[i] = BUILD_LE_UINT32(rx_data->payload, 2 + i * 4);
             }
 
             /* when no objects, then its a control message */
@@ -222,7 +222,8 @@ void pd_protocol_task(void *pvParameters)
                 case PD_VENDOR_MESSAGE:
                 {
                     pd_vdm_packet req_vdm;
-                    pd_parse_vdm(&req_vdm, pdos);
+
+                    pd_parse_vdm(&req_vdm, &rx_msg);
 
                     if (rx_data->target == PD_TARGET_SOP_P && req_vdm.vdm_header.command_type == PD_VDM_CMD_TYPE_REQ && req_vdm.vdm_header.command == PD_VDM_CMD_DISCOVER_IDENTIY)
                     {
@@ -237,7 +238,7 @@ void pd_protocol_task(void *pvParameters)
 
                         pd_vdm_packet resp_vdm = {
                             .vdm_header = {
-                                .svid = 0xFF00,
+                                .svid = PD_VDM_SID_PD,
                                 .vdm_type = 1,
                                 .vdm_version_major = 1,
                                 .vdm_version_minor = 0,
@@ -252,7 +253,7 @@ void pd_protocol_task(void *pvParameters)
                             .cable_1 = {.hw_version = 1, .fw_version = 2, .vdo_version = 0, .plug_type = 2, .epr_capable = 1, .cable_latency = 1, .cable_termination = 0, .max_vbus_voltage = 3, .sbu_supported = 0, .sbu_type = 0, .vbus_current = 2, .vbus_through = 1, .usb_speed = 4},
                         };
 
-                        pd_build_vdm(&resp_vdm, response.pdo);
+                        pd_build_vdm(&resp_vdm, &response);
 
 #if 0
                         /* hardcode to fake an authentic cable */
@@ -279,7 +280,7 @@ void pd_protocol_task(void *pvParameters)
 
                     for (uint32_t index = 0; !state.requested_object && index < hdr.num_data_objects; index++)
                     {
-                        uint32_t pdo_value = pdos[index];
+                        uint32_t pdo_value = rx_msg.pdo[index];
                         uint32_t type = (pdo_value >> 30) & 0x03;
 
                         switch (type)
@@ -382,6 +383,21 @@ void pd_refresh_request(bool immediate)
         pd_request(state.requested_object, state.request_current_ma, immediate);
     }
     state.request_last_timestamp = esp_timer_get_time();
+}
+
+void pd_vdm(int command, int mode)
+{
+    pd_msg response = {0};
+
+    response.target = PD_TARGET_SOP;
+    response.immediate = false;
+    response.header.num_data_objects = 0;
+    response.header.power_role = PD_DATA_ROLE_UFP;
+    response.header.spec_revision = 2;
+    response.header.data_role = PD_DATA_ROLE_UFP;
+    response.header.message_type = PD_VENDOR_MESSAGE;
+
+    pd_tx_enqueue(&response);
 }
 
 void pd_send_control(pd_message_type_t message_id)
@@ -520,10 +536,10 @@ void pd_log_task(void *pvParameters)
             pd_msg_header hdr;
             pd_parse_msg_header(&hdr, rx_data->payload);
 
-            uint32_t pdos[8];
+            pd_msg rx_msg;
             for (int i = 0; i < hdr.num_data_objects; i++)
             {
-                pdos[i] = BUILD_LE_UINT32(rx_data->payload, 2 + i * 4);
+                rx_msg.pdo[i] = BUILD_LE_UINT32(rx_data->payload, 2 + i * 4);
             }
 
             /* Print the fields */
@@ -560,7 +576,7 @@ void pd_log_task(void *pvParameters)
                     break;
 
                 default:
-                    ESP_LOGI(TAG, "    Not implemented yet: 0x02%" PRIx8, hdr.message_type);
+                    ESP_LOGI(TAG, "    Not implemented yet: 0x%02" PRIx8, hdr.message_type);
                     break;
                 }
             }
@@ -573,11 +589,11 @@ void pd_log_task(void *pvParameters)
                 {
                     for (uint32_t index = 0; index < hdr.num_data_objects; index++)
                     {
-                        ESP_LOGI(TAG, "      Data #%" PRIu32 ": 0x%08" PRIx32, index, pdos[index]);
+                        ESP_LOGI(TAG, "      Data #%" PRIu32 ": 0x%08" PRIx32, index, rx_msg.pdo[index]);
                     }
 
                     pd_vdm_packet vdm;
-                    pd_parse_vdm(&vdm, pdos);
+                    pd_parse_vdm(&vdm, &rx_msg);
                     pd_dump_vdm(&vdm);
                     break;
                 }
@@ -585,9 +601,9 @@ void pd_log_task(void *pvParameters)
                 case PD_DATA_REQUEST:
                 {
                     ESP_LOGI(TAG, "    Request");
-                    uint8_t object = ((pdos[0] >> 28) & 0x1F) - 1;
-                    uint32_t operating_current = ((pdos[0] >> 10) & 0x3FF) * 10;
-                    uint32_t max_operating_current = ((pdos[0] >> 0) & 0x3FF) * 10;
+                    uint8_t object = ((rx_msg.pdo[0] >> 28) & 0x1F) - 1;
+                    uint32_t operating_current = ((rx_msg.pdo[0] >> 10) & 0x3FF) * 10;
+                    uint32_t max_operating_current = ((rx_msg.pdo[0] >> 0) & 0x3FF) * 10;
                     ESP_LOGI(TAG, "      Object #%" PRIu8 " (ToDo: dumping in fixed format, will not match when it's PPS)", object);
                     ESP_LOGI(TAG, "      Current     %" PRIu32 "mA", operating_current);
                     ESP_LOGI(TAG, "      Current Max %" PRIu32 "mA", max_operating_current);
@@ -599,7 +615,7 @@ void pd_log_task(void *pvParameters)
                     ESP_LOGI(TAG, "    Source Capabilities:");
                     for (uint32_t index = 0; index < hdr.num_data_objects; index++)
                     {
-                        uint32_t pdo_value = pdos[index];
+                        uint32_t pdo_value = rx_msg.pdo[index];
                         uint32_t type = (pdo_value >> 30) & 0x03;
 
                         switch (type)
@@ -704,7 +720,7 @@ void pd_log_task(void *pvParameters)
 
                 default:
                 {
-                    ESP_LOGI(TAG, "    Not implemented yet: 0x02%" PRIx8, hdr.message_type);
+                    ESP_LOGI(TAG, "    Not implemented yet: 0x%02" PRIx8, hdr.message_type);
                     break;
                 }
                 }

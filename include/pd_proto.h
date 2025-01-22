@@ -33,6 +33,8 @@
 #define RESERVED_MASK 0x00000001
 #define COMMAND_MASK 0x0000001F
 
+#define PD_VDM_SID_PD 0xFF00
+
 /* ID Header VDO  */
 #define USB_HOST_SHIFT 31
 #define USB_DEVICE_SHIFT 30
@@ -244,6 +246,6 @@ void pd_parse_msg_header(pd_msg_header *hdr, uint8_t *data);
 void pd_build_msg_header(pd_msg_header *hdr, uint8_t *data);
 void pd_dump_msg_header(pd_msg_header *hdr);
 
-void pd_parse_vdm(pd_vdm_packet *pkt, uint32_t pdos[7]);
-void pd_build_vdm(pd_vdm_packet *pkt, uint32_t pdos[7]);
+void pd_parse_vdm(pd_vdm_packet *pkt, pd_msg *msg);
+void pd_build_vdm(pd_vdm_packet *pkt, pd_msg *msg);
 void pd_dump_vdm(pd_vdm_packet *pkt);
