@@ -1,5 +1,5 @@
 
-# ESP32-C3 USB PD Hacky Stack
+# ESP32-C3 USB PD Hacky Stack [blog](https://www.g3gg0.de/esp32/esp32-pd-usb-pd-using-esp32-zigbee-crib/)
 
 A lightweight and experimental USB Power Delivery (PD) stack for the ESP32-C3. This project enables the ESP32-C3 to request voltages from a power supply, sniff and log PD communication, and inject commands for experimentation with Vendor Defined Messages (VDM).
 
