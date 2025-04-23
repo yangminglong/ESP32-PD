@@ -81,8 +81,8 @@ static int cmd_req_obj(int argc, char **argv)
         return 1;
     }
 
-    uint16_t arg_obj = *cmd_req_pps_args.object->ival;
-    uint16_t arg_ma = *cmd_req_pps_args.current_ma->ival;
+    uint16_t arg_obj = *cmd_req_obj_args.object->ival;
+    uint16_t arg_ma = *cmd_req_obj_args.current_ma->ival;
 
     pd_request(arg_obj, arg_ma, 0);
 
