@@ -3,8 +3,7 @@
 #include <stdint.h>
 #include "pd_types.h"
 
-
-// #define GPIO_CC1 3
+// #define GPIO_CC1 3 // 通过与GPIO_TX连接来得到一个大约1.7V的分压器, ESP32内部上拉、下拉电阻为47K
 #define GPIO_PD 4
 #define GPIO_TX 3
 #define GPIO_CC1_IN 0
