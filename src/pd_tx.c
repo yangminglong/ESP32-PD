@@ -62,7 +62,7 @@ void IRAM_ATTR pd_tx_active()
 #ifdef GPIO_CC1
     gpio_set_direction(GPIO_CC1, GPIO_MODE_OUTPUT);
     gpio_set_level(GPIO_CC1, 0);
-    /* we now have configured the CC1 pin and TX pin to drive against each other.
+    /* we now have configured the GPIO_CC1 pin and GPIO_TX pin to drive against each other.
     with these drive capabilities, we get a voltage divider to approx 1.7V, which is closer to
     the expected 1.1V on the PD lines */
 #else
@@ -361,6 +361,8 @@ void IRAM_ATTR pd_tx_task(void *pvParameters)
         {
             msg->cbr(msg, ack);
         }
+
+        // TODO: ? : free(msg);
     }
 }
 
